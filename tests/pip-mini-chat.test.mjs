@@ -8,7 +8,7 @@ import {
     findLatestAssistantMessage,
     formatLatestAssistantMessage,
     sendDraftToSillyTavern,
-} from '../public/scripts/extensions/third-party/pip-mini-chat/core.js';
+} from '../core.js';
 
 test('findLatestAssistantMessage returns the newest non-user non-system message', () => {
     const chat = [
