@@ -7,6 +7,7 @@ import {
     bindEventHandlers,
     findLatestAssistantMessage,
     formatLatestAssistantMessage,
+    getLauncherTargets,
     sendDraftToSillyTavern,
 } from '../core.js';
 
@@ -134,4 +135,34 @@ test('bindEventHandlers registers handlers and returns a cleanup function', () =
     assert.equal(registered.length, 2);
     cleanup();
     assert.deepEqual(removed, registered);
+});
+
+test('getLauncherTargets includes menu and body targets when available', () => {
+    const menu = { id: 'extensionsMenu' };
+    const body = { id: 'body' };
+    const doc = {
+        body,
+        querySelector(selector) {
+            return selector === '#extensionsMenu' ? menu : null;
+        },
+    };
+
+    assert.deepEqual(getLauncherTargets(doc), [
+        { id: 'pip-mini-chat-menu-open', host: menu, variant: 'menu' },
+        { id: 'pip-mini-chat-floating-open', host: body, variant: 'floating' },
+    ]);
+});
+
+test('getLauncherTargets falls back to body when the extensions menu is unavailable', () => {
+    const body = { id: 'body' };
+    const doc = {
+        body,
+        querySelector() {
+            return null;
+        },
+    };
+
+    assert.deepEqual(getLauncherTargets(doc), [
+        { id: 'pip-mini-chat-floating-open', host: body, variant: 'floating' },
+    ]);
 });

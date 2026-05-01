@@ -2,19 +2,22 @@ import {
     bindEventHandlers,
     buildEventList,
     formatLatestAssistantMessage,
+    getLauncherTargets,
     sendDraftToSillyTavern,
 } from './core.js';
 
 const EXTENSION_NAME = 'pip-mini-chat';
-const BUTTON_ID = 'pip-mini-chat-open';
 const PIP_WIDTH = 380;
 const PIP_HEIGHT = 360;
+const LAUNCHER_RETRY_LIMIT = 20;
 
 let pipWindow = null;
 let pipElements = null;
 let sendTextareaMessage = null;
 let isGenerating = false;
 let cleanupPipEventListeners = null;
+let launcherRetryCount = 0;
+let launcherRetryTimer = null;
 
 function getContext() {
     return globalThis.SillyTavern?.getContext?.();
@@ -79,9 +82,9 @@ function updateControls() {
     pipElements.stop.disabled = !isGenerating;
 
     if (isGenerating) {
-        setStatus('生成中', 'generating');
+        setStatus('Generating', 'generating');
     } else if (pipElements.status.dataset.state !== 'error') {
-        setStatus('空闲', 'idle');
+        setStatus('Idle', 'idle');
     }
 }
 
@@ -110,10 +113,10 @@ async function sendDraft() {
             sendTextareaMessage: sendMessage,
         });
         pipElements.input.value = '';
-        setStatus('已发送', 'idle');
+        setStatus('Sent', 'idle');
         updateControls();
     } catch (error) {
-        notifyError(error?.message ?? '发送失败', error);
+        notifyError(error?.message ?? 'Send failed', error);
     }
 }
 
@@ -122,7 +125,7 @@ function stopGeneration() {
         const context = getContext();
         context?.stopGeneration?.();
     } catch (error) {
-        notifyError(error?.message ?? '停止生成失败', error);
+        notifyError(error?.message ?? 'Stop failed', error);
     }
 }
 
@@ -243,13 +246,13 @@ function buildPipDocument(targetWindow) {
         <main class="pip-mini-chat">
             <header class="pip-mini-chat__header">
                 <div class="pip-mini-chat__title"></div>
-                <div class="pip-mini-chat__status" data-state="idle">空闲</div>
+                <div class="pip-mini-chat__status" data-state="idle">Idle</div>
             </header>
             <section class="pip-mini-chat__output" aria-live="polite"></section>
-            <textarea class="pip-mini-chat__input" rows="3" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+            <textarea class="pip-mini-chat__input" rows="3" placeholder="Message. Enter sends, Shift+Enter adds a line."></textarea>
             <div class="pip-mini-chat__actions">
-                <button class="pip-mini-chat__button pip-mini-chat__button--send" type="button">发送</button>
-                <button class="pip-mini-chat__button pip-mini-chat__button--stop" type="button">停止</button>
+                <button class="pip-mini-chat__button pip-mini-chat__button--send" type="button">Send</button>
+                <button class="pip-mini-chat__button pip-mini-chat__button--stop" type="button">Stop</button>
             </div>
         </main>
     `;
@@ -288,7 +291,7 @@ function cleanupPip() {
 
 async function openPipWindow() {
     if (!window.documentPictureInPicture?.requestWindow) {
-        notifyError('当前浏览器不支持 Document Picture-in-Picture。请使用 Chrome 或 Edge。');
+        notifyError('Document Picture-in-Picture is unavailable. Please use Chrome or Edge.');
         return;
     }
 
@@ -309,21 +312,22 @@ async function openPipWindow() {
         pipElements.input.focus();
     } catch (error) {
         cleanupPip();
-        notifyError(error?.message ?? '无法打开 PiP 小窗', error);
+        notifyError(error?.message ?? 'Could not open PiP window', error);
     }
 }
 
-function registerLauncher() {
-    if (document.getElementById(BUTTON_ID)) {
-        return;
-    }
-
+function createLauncherButton({ id, variant }) {
     const button = document.createElement('div');
-    button.id = BUTTON_ID;
-    button.className = 'list-group-item flex-container flexGap5 interactable';
+    button.id = id;
+    button.className = variant === 'menu'
+        ? 'list-group-item flex-container flexGap5 interactable pip-mini-chat-menu-launcher'
+        : 'pip-mini-chat-floating-launcher interactable';
     button.tabIndex = 0;
     button.role = 'button';
-    button.innerHTML = '<span class="pip-mini-chat-icon">▣</span><span>打开 PiP 小窗</span>';
+    button.title = 'Open PiP Mini Chat';
+    button.innerHTML = variant === 'menu'
+        ? '<span class="pip-mini-chat-icon">PiP</span><span>PiP Mini Chat</span>'
+        : '<span aria-hidden="true">PiP</span>';
     button.addEventListener('click', () => void openPipWindow());
     button.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -332,12 +336,33 @@ function registerLauncher() {
         }
     });
 
-    const menu = document.querySelector('#extensionsMenu');
-    if (menu) {
-        menu.append(button);
-    } else {
-        document.body.append(button);
+    return button;
+}
+
+function registerLauncher() {
+    for (const target of getLauncherTargets(document)) {
+        if (document.getElementById(target.id)) {
+            continue;
+        }
+
+        target.host.append(createLauncherButton(target));
     }
+}
+
+function startLauncherRetry() {
+    if (launcherRetryTimer) {
+        return;
+    }
+
+    launcherRetryTimer = window.setInterval(() => {
+        registerLauncher();
+        launcherRetryCount += 1;
+
+        if (document.getElementById('pip-mini-chat-menu-open') || launcherRetryCount >= LAUNCHER_RETRY_LIMIT) {
+            window.clearInterval(launcherRetryTimer);
+            launcherRetryTimer = null;
+        }
+    }, 500);
 }
 
 function handleEvent(eventName) {
@@ -370,6 +395,7 @@ function registerPipEventListeners() {
 
 function init() {
     registerLauncher();
+    startLauncherRetry();
 }
 
 const context = getContext();

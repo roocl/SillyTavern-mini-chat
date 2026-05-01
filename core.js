@@ -107,3 +107,26 @@ export function bindEventHandlers({ eventSource, eventNames, onEvent }) {
         }
     };
 }
+
+export function getLauncherTargets(doc) {
+    const targets = [];
+    const menu = doc?.querySelector?.('#extensionsMenu');
+
+    if (menu) {
+        targets.push({
+            id: 'pip-mini-chat-menu-open',
+            host: menu,
+            variant: 'menu',
+        });
+    }
+
+    if (doc?.body) {
+        targets.push({
+            id: 'pip-mini-chat-floating-open',
+            host: doc.body,
+            variant: 'floating',
+        });
+    }
+
+    return targets;
+}

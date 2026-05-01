@@ -1,7 +1,33 @@
-#pip-mini-chat-open {
+#pip-mini-chat-menu-open {
     cursor: pointer;
 }
 
-#pip-mini-chat-open .pip-mini-chat-icon {
+#pip-mini-chat-menu-open .pip-mini-chat-icon {
     margin-right: 0.35rem;
+}
+
+#pip-mini-chat-floating-open {
+    position: fixed;
+    right: 18px;
+    bottom: 92px;
+    z-index: 30000;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 36px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.25));
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor, rgba(32, 32, 36, 0.92));
+    color: var(--SmartThemeBodyColor, #f4f4f5);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    user-select: none;
+}
+
+#pip-mini-chat-floating-open:hover {
+    filter: brightness(1.12);
 }
