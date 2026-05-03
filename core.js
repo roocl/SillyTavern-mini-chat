@@ -9,6 +9,47 @@ export const EVENT_NAMES = Object.freeze({
     GENERATION_ENDED: 'generation_ended',
 });
 
+export const THEME_VARIABLE_NAMES = Object.freeze([
+    '--SmartThemeBodyColor',
+    '--SmartThemeEmColor',
+    '--SmartThemeUnderlineColor',
+    '--SmartThemeQuoteColor',
+    '--SmartThemeBlurTintColor',
+    '--SmartThemeChatTintColor',
+    '--SmartThemeUserMesBlurTintColor',
+    '--SmartThemeBotMesBlurTintColor',
+    '--SmartThemeShadowColor',
+    '--SmartThemeBorderColor',
+    '--mainFontSize',
+    '--black30a',
+    '--black70a',
+    '--grey30a',
+    '--grey7070a',
+    '--white30a',
+    '--white50a',
+]);
+
+export function collectThemeVariables(styles, variableNames = THEME_VARIABLE_NAMES) {
+    const variables = {};
+
+    for (const name of variableNames) {
+        const value = styles?.getPropertyValue?.(name)?.trim();
+        if (value) {
+            variables[name] = value;
+        }
+    }
+
+    return variables;
+}
+
+export function buildThemeVariableCss(variables) {
+    const declarations = Object.entries(variables ?? {})
+        .map(([name, value]) => `${name}:${value};`)
+        .join('');
+
+    return declarations ? `:root{${declarations}}` : '';
+}
+
 export function findLatestAssistantMessage(chat) {
     if (!Array.isArray(chat)) {
         return null;

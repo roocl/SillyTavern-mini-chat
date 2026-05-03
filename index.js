@@ -1,6 +1,8 @@
 import {
     bindEventHandlers,
+    buildThemeVariableCss,
     buildEventList,
+    collectThemeVariables,
     formatLatestAssistantMessage,
     getLauncherTargets,
     getTextareaRowCount,
@@ -151,16 +153,18 @@ async function regenerateLastMessage() {
 function getPipStyles() {
     return `
         :root {
-            color-scheme: dark;
+            color-scheme: light dark;
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: #171717;
-            color: #f4f4f5;
+            background: var(--SmartThemeBlurTintColor, #171717);
+            color: var(--SmartThemeBodyColor, #f4f4f5);
+            font-size: var(--mainFontSize, 14px);
         }
         * { box-sizing: border-box; }
         body {
             margin: 0;
             min-height: 100vh;
-            background: #171717;
+            background: var(--SmartThemeBlurTintColor, #171717);
+            color: var(--SmartThemeBodyColor, #f4f4f5);
         }
         .pip-mini-chat {
             display: grid;
@@ -174,8 +178,8 @@ function getPipStyles() {
             justify-content: space-between;
             gap: 8px;
             padding: 10px 12px;
-            border-bottom: 1px solid #303036;
-            background: #202024;
+            border-bottom: 1px solid var(--SmartThemeBorderColor, #303036);
+            background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #202024) 82%, transparent);
         }
         .pip-mini-chat__title {
             overflow: hidden;
@@ -187,13 +191,13 @@ function getPipStyles() {
         .pip-mini-chat__status {
             flex: 0 0 auto;
             font-size: 12px;
-            color: #a1a1aa;
+            color: var(--SmartThemeQuoteColor, #a1a1aa);
         }
         .pip-mini-chat__status[data-state="generating"] {
             color: #67e8f9;
         }
         .pip-mini-chat__status[data-state="error"] {
-            color: #fca5a5;
+            color: #d33;
         }
         .pip-mini-chat__output {
             overflow: auto;
@@ -203,7 +207,7 @@ function getPipStyles() {
             overflow-wrap: anywhere;
         }
         .pip-mini-chat-empty {
-            color: #a1a1aa;
+            color: var(--SmartThemeQuoteColor, #a1a1aa);
         }
         .pip-mini-chat__input {
             display: block;
@@ -213,17 +217,17 @@ function getPipStyles() {
             max-height: 76px;
             margin: 0 12px 10px;
             resize: none;
-            border: 1px solid #3f3f46;
+            border: 1px solid var(--SmartThemeBorderColor, #3f3f46);
             border-radius: 8px;
             padding: 7px 10px;
-            background: #242429;
-            color: #fafafa;
+            background: var(--black30a, rgba(36, 36, 41, 0.92));
+            color: var(--SmartThemeBodyColor, #fafafa);
             font: inherit;
             line-height: 20px;
             overflow-y: hidden;
         }
         .pip-mini-chat__input:focus {
-            border-color: #22d3ee;
+            border-color: var(--SmartThemeUnderlineColor, #22d3ee);
             outline: none;
         }
         .pip-mini-chat__actions {
@@ -234,34 +238,48 @@ function getPipStyles() {
         }
         .pip-mini-chat__button {
             min-height: 36px;
-            border: 1px solid #3f3f46;
+            border: 1px solid var(--SmartThemeBorderColor, #3f3f46);
             border-radius: 8px;
-            background: #27272a;
-            color: #fafafa;
+            background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #27272a) 76%, var(--SmartThemeBodyColor, #fafafa) 24%);
+            color: var(--SmartThemeBodyColor, #fafafa);
             font: inherit;
             font-weight: 700;
             cursor: pointer;
         }
         .pip-mini-chat__button:hover:not(:disabled) {
-            background: #33333a;
+            filter: brightness(1.08);
         }
         .pip-mini-chat__button:disabled {
             cursor: not-allowed;
             opacity: 0.5;
         }
         .pip-mini-chat__button--send {
-            border-color: #0891b2;
-            background: #0e7490;
+            border-color: var(--SmartThemeUnderlineColor, #0891b2);
+            background: color-mix(in srgb, var(--SmartThemeUnderlineColor, #0e7490) 45%, var(--SmartThemeBlurTintColor, #202024) 55%);
         }
         .pip-mini-chat__button--stop {
-            border-color: #991b1b;
-            background: #7f1d1d;
+            border-color: #b44;
+            background: color-mix(in srgb, #b44 38%, var(--SmartThemeBlurTintColor, #202024) 62%);
         }
         .pip-mini-chat__button--regenerate {
-            border-color: #52525b;
-            background: #3f3f46;
+            border-color: var(--SmartThemeQuoteColor, #52525b);
+            background: color-mix(in srgb, var(--SmartThemeQuoteColor, #3f3f46) 38%, var(--SmartThemeBlurTintColor, #202024) 62%);
         }
     `;
+}
+
+function copyThemeToPipDocument(targetDocument) {
+    const themeVariables = collectThemeVariables(getComputedStyle(document.documentElement));
+    const css = buildThemeVariableCss(themeVariables);
+
+    if (!css) {
+        return;
+    }
+
+    const style = targetDocument.createElement('style');
+    style.dataset.pipMiniChatTheme = 'true';
+    style.textContent = css;
+    targetDocument.head.append(style);
 }
 
 function buildPipDocument(targetWindow) {
@@ -284,6 +302,7 @@ function buildPipDocument(targetWindow) {
     `;
 
     const style = doc.createElement('style');
+    copyThemeToPipDocument(doc);
     style.textContent = getPipStyles();
     doc.head.append(style);
 
