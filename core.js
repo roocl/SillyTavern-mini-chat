@@ -95,6 +95,8 @@ export async function sendDraftToSillyTavern({
     textarea,
     inputEventFactory,
     sendTextareaMessage,
+    compatibleIntentTarget = null,
+    compatibleIntentEventFactory = null,
 }) {
     const draft = String(text ?? '').trim();
     if (!draft) {
@@ -111,7 +113,20 @@ export async function sendDraftToSillyTavern({
 
     textarea.value = draft;
     textarea.dispatchEvent(inputEventFactory());
+    signalCompatibleSendIntent({
+        target: compatibleIntentTarget,
+        eventFactory: compatibleIntentEventFactory,
+    });
     await sendTextareaMessage();
+}
+
+export function signalCompatibleSendIntent({ target, eventFactory }) {
+    if (!target || typeof target.dispatchEvent !== 'function' || typeof eventFactory !== 'function') {
+        return false;
+    }
+
+    target.dispatchEvent(eventFactory());
+    return true;
 }
 
 export function buildEventList({ eventTypes } = {}) {
@@ -216,5 +231,30 @@ export function readGenerationState({ localState, isGeneratingFn } = {}) {
         return Boolean(isGeneratingFn());
     } catch {
         return Boolean(localState);
+    }
+}
+
+export function readBooleanSetting({ storage, key, fallback = false }) {
+    try {
+        const value = storage?.getItem?.(key);
+        if (value === 'true') {
+            return true;
+        }
+        if (value === 'false') {
+            return false;
+        }
+    } catch {
+        // Settings are optional; fall back when storage is unavailable.
+    }
+
+    return Boolean(fallback);
+}
+
+export function writeBooleanSetting({ storage, key, value }) {
+    try {
+        storage?.setItem?.(key, String(Boolean(value)));
+        return true;
+    } catch {
+        return false;
     }
 }

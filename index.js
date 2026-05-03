@@ -7,10 +7,12 @@ import {
     getLauncherTargets,
     getTextareaRowCount,
     normalizeFloatingPosition,
+    readBooleanSetting,
     readGenerationState,
     sendDraftToSillyTavern,
     shouldClosePipWindow,
     triggerRegenerate,
+    writeBooleanSetting,
 } from './core.js';
 
 const EXTENSION_NAME = 'pip-mini-chat';
@@ -18,6 +20,7 @@ const PIP_WIDTH = 380;
 const PIP_HEIGHT = 360;
 const LAUNCHER_RETRY_LIMIT = 20;
 const FLOATING_POSITION_KEY = 'pip-mini-chat-floating-position';
+const COMPATIBLE_SEND_MODE_KEY = 'pip-mini-chat-compatible-send-mode';
 const FLOATING_DRAG_MARGIN = 8;
 
 let pipWindow = null;
@@ -28,6 +31,11 @@ let isGenerating = false;
 let cleanupPipEventListeners = null;
 let launcherRetryCount = 0;
 let launcherRetryTimer = null;
+let compatibleSendMode = readBooleanSetting({
+    storage: globalThis.localStorage,
+    key: COMPATIBLE_SEND_MODE_KEY,
+    fallback: false,
+});
 
 function getContext() {
     return globalThis.SillyTavern?.getContext?.();
@@ -140,11 +148,14 @@ async function sendDraft() {
     try {
         const sendMessage = await loadSendTextareaMessage();
         const textarea = document.querySelector('#send_textarea');
+        const sendButton = compatibleSendMode ? document.querySelector('#send_but') : null;
         await sendDraftToSillyTavern({
             text: pipElements.input.value,
             textarea,
             inputEventFactory: () => new Event('input', { bubbles: true }),
             sendTextareaMessage: sendMessage,
+            compatibleIntentTarget: sendButton,
+            compatibleIntentEventFactory: createCompatibleSendIntentEvent,
         });
         pipElements.input.value = '';
         resizePipInput();
@@ -153,6 +164,24 @@ async function sendDraft() {
     } catch (error) {
         notifyError(error?.message ?? 'Send failed', error);
     }
+}
+
+function createCompatibleSendIntentEvent() {
+    const options = {
+        bubbles: true,
+        cancelable: true,
+        pointerType: 'mouse',
+        button: 0,
+    };
+
+    if (typeof PointerEvent === 'function') {
+        return new PointerEvent('pointerup', options);
+    }
+
+    return new Event('pointerup', {
+        bubbles: true,
+        cancelable: true,
+    });
 }
 
 function stopGeneration() {
@@ -631,16 +660,65 @@ function registerLauncher() {
     }
 }
 
+function setCompatibleSendMode(enabled) {
+    compatibleSendMode = Boolean(enabled);
+    writeBooleanSetting({
+        storage: globalThis.localStorage,
+        key: COMPATIBLE_SEND_MODE_KEY,
+        value: compatibleSendMode,
+    });
+}
+
+function registerSettingsPanel() {
+    if (document.getElementById('pip-mini-chat-settings')) {
+        return;
+    }
+
+    const host = document.querySelector('#extensions_settings');
+    if (!host) {
+        return;
+    }
+
+    const panel = document.createElement('div');
+    panel.id = 'pip-mini-chat-settings';
+    panel.className = 'pip-mini-chat-settings';
+    panel.innerHTML = `
+        <div class="pip-mini-chat-settings__header">
+            ${getLauncherIcon()}
+            <span>小窗模式</span>
+        </div>
+        <label class="pip-mini-chat-settings__row">
+            <input id="pip-mini-chat-compatible-send-mode" type="checkbox">
+            <span>兼容发送拦截插件</span>
+        </label>
+        <div class="pip-mini-chat-settings__hint">
+            开启后，小窗发送前会向主页面发送按钮发出一次发送意图信号，用于兼容数据库、剧情规划等拦截脚本。
+        </div>
+    `;
+
+    const checkbox = panel.querySelector('#pip-mini-chat-compatible-send-mode');
+    checkbox.checked = compatibleSendMode;
+    checkbox.addEventListener('change', () => {
+        setCompatibleSendMode(checkbox.checked);
+    });
+
+    host.append(panel);
+}
+
 function startLauncherRetry() {
     if (launcherRetryTimer) {
         return;
     }
 
     launcherRetryTimer = window.setInterval(() => {
+        registerSettingsPanel();
         registerLauncher();
         launcherRetryCount += 1;
 
-        if (document.getElementById('pip-mini-chat-menu-open') || launcherRetryCount >= LAUNCHER_RETRY_LIMIT) {
+        if (
+            (document.getElementById('pip-mini-chat-menu-open') && document.getElementById('pip-mini-chat-settings')) ||
+            launcherRetryCount >= LAUNCHER_RETRY_LIMIT
+        ) {
             window.clearInterval(launcherRetryTimer);
             launcherRetryTimer = null;
         }
@@ -677,6 +755,7 @@ function registerPipEventListeners() {
 }
 
 function init() {
+    registerSettingsPanel();
     registerLauncher();
     startLauncherRetry();
 }
