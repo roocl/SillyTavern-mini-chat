@@ -6,6 +6,14 @@
     margin-right: 0.35rem;
 }
 
+.pip-mini-chat-icon {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+}
+
 #pip-mini-chat-floating-open {
     position: fixed;
     right: 18px;
@@ -27,6 +35,10 @@
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
     touch-action: none;
     user-select: none;
+}
+
+#pip-mini-chat-floating-open .pip-mini-chat-icon {
+    margin: 0;
 }
 
 #pip-mini-chat-floating-open:hover {

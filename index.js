@@ -3,8 +3,10 @@ import {
     buildEventList,
     formatLatestAssistantMessage,
     getLauncherTargets,
+    getTextareaRowCount,
     normalizeFloatingPosition,
     sendDraftToSillyTavern,
+    triggerRegenerate,
 } from './core.js';
 
 const EXTENSION_NAME = 'pip-mini-chat';
@@ -82,6 +84,7 @@ function updateControls() {
 
     const hasText = pipElements.input.value.trim().length > 0;
     pipElements.send.disabled = isGenerating || !hasText;
+    pipElements.regenerate.disabled = isGenerating || !getContext()?.chat?.length;
     pipElements.stop.disabled = !isGenerating;
 
     if (isGenerating) {
@@ -116,6 +119,7 @@ async function sendDraft() {
             sendTextareaMessage: sendMessage,
         });
         pipElements.input.value = '';
+        resizePipInput();
         setStatus('Sent', 'idle');
         updateControls();
     } catch (error) {
@@ -129,6 +133,18 @@ function stopGeneration() {
         context?.stopGeneration?.();
     } catch (error) {
         notifyError(error?.message ?? 'Stop failed', error);
+    }
+}
+
+async function regenerateLastMessage() {
+    try {
+        isGenerating = true;
+        updateControls();
+        await triggerRegenerate(getContext());
+    } catch (error) {
+        isGenerating = false;
+        updateControls();
+        notifyError(error?.message ?? 'Regenerate failed', error);
     }
 }
 
@@ -192,17 +208,19 @@ function getPipStyles() {
         .pip-mini-chat__input {
             display: block;
             width: calc(100% - 24px);
-            min-height: 72px;
-            max-height: 140px;
+            height: 36px;
+            min-height: 36px;
+            max-height: 76px;
             margin: 0 12px 10px;
-            resize: vertical;
+            resize: none;
             border: 1px solid #3f3f46;
             border-radius: 8px;
-            padding: 9px 10px;
+            padding: 7px 10px;
             background: #242429;
             color: #fafafa;
             font: inherit;
-            line-height: 1.45;
+            line-height: 20px;
+            overflow-y: hidden;
         }
         .pip-mini-chat__input:focus {
             border-color: #22d3ee;
@@ -210,7 +228,7 @@ function getPipStyles() {
         }
         .pip-mini-chat__actions {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 8px;
             padding: 0 12px 12px;
         }
@@ -239,6 +257,10 @@ function getPipStyles() {
             border-color: #991b1b;
             background: #7f1d1d;
         }
+        .pip-mini-chat__button--regenerate {
+            border-color: #52525b;
+            background: #3f3f46;
+        }
     `;
 }
 
@@ -252,9 +274,10 @@ function buildPipDocument(targetWindow) {
                 <div class="pip-mini-chat__status" data-state="idle">Idle</div>
             </header>
             <section class="pip-mini-chat__output" aria-live="polite"></section>
-            <textarea class="pip-mini-chat__input" rows="3" placeholder="Message. Enter sends, Shift+Enter adds a line."></textarea>
+            <textarea class="pip-mini-chat__input" rows="1" placeholder="Message"></textarea>
             <div class="pip-mini-chat__actions">
                 <button class="pip-mini-chat__button pip-mini-chat__button--send" type="button">Send</button>
+                <button class="pip-mini-chat__button pip-mini-chat__button--regenerate" type="button">Retry</button>
                 <button class="pip-mini-chat__button pip-mini-chat__button--stop" type="button">Stop</button>
             </div>
         </main>
@@ -270,10 +293,15 @@ function buildPipDocument(targetWindow) {
         output: doc.querySelector('.pip-mini-chat__output'),
         input: doc.querySelector('.pip-mini-chat__input'),
         send: doc.querySelector('.pip-mini-chat__button--send'),
+        regenerate: doc.querySelector('.pip-mini-chat__button--regenerate'),
         stop: doc.querySelector('.pip-mini-chat__button--stop'),
     };
 
-    pipElements.input.addEventListener('input', updateControls);
+    resizePipInput();
+    pipElements.input.addEventListener('input', () => {
+        resizePipInput();
+        updateControls();
+    });
     pipElements.input.addEventListener('keydown', event => {
         if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
             event.preventDefault();
@@ -281,7 +309,22 @@ function buildPipDocument(targetWindow) {
         }
     });
     pipElements.send.addEventListener('click', () => void sendDraft());
+    pipElements.regenerate.addEventListener('click', () => void regenerateLastMessage());
     pipElements.stop.addEventListener('click', stopGeneration);
+}
+
+function resizePipInput() {
+    if (!pipElements?.input) {
+        return;
+    }
+
+    const rawLineCount = String(pipElements.input.value ?? '').split('\n').length;
+    const rowCount = getTextareaRowCount(pipElements.input.value);
+    const height = 16 + (rowCount * 20);
+
+    pipElements.input.rows = rowCount;
+    pipElements.input.style.height = `${height}px`;
+    pipElements.input.style.overflowY = rawLineCount > 3 ? 'auto' : 'hidden';
 }
 
 function cleanupPip() {
@@ -329,8 +372,8 @@ function createLauncherButton({ id, variant }) {
     button.role = 'button';
     button.title = 'Open small window mode';
     button.innerHTML = variant === 'menu'
-        ? '<span class="pip-mini-chat-icon">PiP</span><span>小窗模式</span>'
-        : '<span aria-hidden="true">PiP</span>';
+        ? `${getLauncherIcon()}<span>小窗模式</span>`
+        : getLauncherIcon();
     button.addEventListener('click', event => {
         if (button.dataset.dragMoved === 'true') {
             event.preventDefault();
@@ -353,6 +396,15 @@ function createLauncherButton({ id, variant }) {
     }
 
     return button;
+}
+
+function getLauncherIcon() {
+    return `
+        <svg class="pip-mini-chat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+            <rect x="12" y="11" width="6" height="4" rx="1"></rect>
+        </svg>
+    `;
 }
 
 function getStoredFloatingPosition() {

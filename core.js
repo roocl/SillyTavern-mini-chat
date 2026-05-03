@@ -148,3 +148,16 @@ export function normalizeFloatingPosition({
         top: Math.min(Math.max(top, margin), maxTop),
     };
 }
+
+export function getTextareaRowCount(value) {
+    const lineCount = String(value ?? '').split('\n').length;
+    return Math.min(Math.max(lineCount, 1), 3);
+}
+
+export async function triggerRegenerate(context) {
+    if (typeof context?.generate !== 'function') {
+        throw new Error('SillyTavern generate is unavailable.');
+    }
+
+    await context.generate('regenerate');
+}
