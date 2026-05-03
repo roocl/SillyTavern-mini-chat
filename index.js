@@ -8,6 +8,7 @@ import {
     getTextareaRowCount,
     normalizeFloatingPosition,
     sendDraftToSillyTavern,
+    shouldClosePipWindow,
     triggerRegenerate,
 } from './core.js';
 
@@ -160,6 +161,26 @@ function getPipStyles() {
             font-size: var(--mainFontSize, 14px);
         }
         * { box-sizing: border-box; }
+        * {
+            scrollbar-color: var(--grey7070a, var(--SmartThemeBorderColor, #8aa5bb)) color-mix(in srgb, var(--SmartThemeBlurTintColor, #171717) 70%, transparent);
+            scrollbar-width: thin;
+        }
+        *::-webkit-scrollbar {
+            width: 9px;
+            height: 9px;
+        }
+        *::-webkit-scrollbar-track {
+            background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #171717) 72%, transparent);
+            border-radius: 999px;
+        }
+        *::-webkit-scrollbar-thumb {
+            background: color-mix(in srgb, var(--grey7070a, var(--SmartThemeBorderColor, #8aa5bb)) 82%, var(--SmartThemeBodyColor, #f4f4f5) 18%);
+            border: 2px solid color-mix(in srgb, var(--SmartThemeBlurTintColor, #171717) 72%, transparent);
+            border-radius: 999px;
+        }
+        *::-webkit-scrollbar-thumb:hover {
+            background: var(--SmartThemeUnderlineColor, var(--grey7070a, #8aa5bb));
+        }
         body {
             margin: 0;
             min-height: 100vh;
@@ -179,7 +200,12 @@ function getPipStyles() {
             gap: 8px;
             padding: 10px 12px;
             border-bottom: 1px solid var(--SmartThemeBorderColor, #303036);
-            background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #202024) 82%, transparent);
+            background: linear-gradient(
+                180deg,
+                color-mix(in srgb, var(--SmartThemeBlurTintColor, #202024) 94%, var(--SmartThemeBodyColor, #f4f4f5) 6%),
+                color-mix(in srgb, var(--SmartThemeBlurTintColor, #202024) 82%, var(--SmartThemeChatTintColor, #202024) 18%)
+            );
+            box-shadow: 0 1px 0 var(--SmartThemeBorderColor, #303036);
         }
         .pip-mini-chat__title {
             overflow: hidden;
@@ -381,6 +407,26 @@ async function openPipWindow() {
     }
 }
 
+function closePipWindow() {
+    if (!shouldClosePipWindow(pipWindow)) {
+        cleanupPip();
+        return;
+    }
+
+    const windowToClose = pipWindow;
+    cleanupPip();
+    windowToClose.close();
+}
+
+async function togglePipWindow() {
+    if (shouldClosePipWindow(pipWindow)) {
+        closePipWindow();
+        return;
+    }
+
+    await openPipWindow();
+}
+
 function createLauncherButton({ id, variant }) {
     const button = document.createElement('div');
     button.id = id;
@@ -400,12 +446,12 @@ function createLauncherButton({ id, variant }) {
             return;
         }
 
-        void openPipWindow();
+        void togglePipWindow();
     });
     button.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            void openPipWindow();
+            void togglePipWindow();
         }
     });
 

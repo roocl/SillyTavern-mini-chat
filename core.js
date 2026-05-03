@@ -202,3 +202,7 @@ export async function triggerRegenerate(context) {
 
     await context.generate('regenerate');
 }
+
+export function shouldClosePipWindow(pipWindow) {
+    return Boolean(pipWindow && pipWindow.closed !== true);
+}
