@@ -206,3 +206,15 @@ export async function triggerRegenerate(context) {
 export function shouldClosePipWindow(pipWindow) {
     return Boolean(pipWindow && pipWindow.closed !== true);
 }
+
+export function readGenerationState({ localState, isGeneratingFn } = {}) {
+    if (typeof isGeneratingFn !== 'function') {
+        return Boolean(localState);
+    }
+
+    try {
+        return Boolean(isGeneratingFn());
+    } catch {
+        return Boolean(localState);
+    }
+}

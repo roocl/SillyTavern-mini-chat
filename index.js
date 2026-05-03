@@ -7,6 +7,7 @@ import {
     getLauncherTargets,
     getTextareaRowCount,
     normalizeFloatingPosition,
+    readGenerationState,
     sendDraftToSillyTavern,
     shouldClosePipWindow,
     triggerRegenerate,
@@ -22,6 +23,7 @@ const FLOATING_DRAG_MARGIN = 8;
 let pipWindow = null;
 let pipElements = null;
 let sendTextareaMessage = null;
+let sillyTavernIsGenerating = null;
 let isGenerating = false;
 let cleanupPipEventListeners = null;
 let launcherRetryCount = 0;
@@ -71,6 +73,7 @@ function refreshPip() {
         return;
     }
 
+    syncGenerationState();
     const context = getContext();
     pipElements.title.textContent = getTitle(context);
     pipElements.output.innerHTML = formatLatestAssistantMessage({
@@ -85,6 +88,7 @@ function updateControls() {
         return;
     }
 
+    syncGenerationState();
     const hasText = pipElements.input.value.trim().length > 0;
     pipElements.send.disabled = isGenerating || !hasText;
     pipElements.regenerate.disabled = isGenerating || !getContext()?.chat?.length;
@@ -104,7 +108,28 @@ async function loadSendTextareaMessage() {
 
     const module = await import('/script.js');
     sendTextareaMessage = module.sendTextareaMessage;
+    sillyTavernIsGenerating = module.isGenerating;
     return sendTextareaMessage;
+}
+
+async function loadSillyTavernStatusHelpers() {
+    if (sillyTavernIsGenerating) {
+        return;
+    }
+
+    try {
+        const module = await import('/script.js');
+        sillyTavernIsGenerating = module.isGenerating;
+    } catch (error) {
+        console.debug(`[${EXTENSION_NAME}] Could not load SillyTavern status helper`, error);
+    }
+}
+
+function syncGenerationState() {
+    isGenerating = readGenerationState({
+        localState: isGenerating,
+        isGeneratingFn: sillyTavernIsGenerating,
+    });
 }
 
 async function sendDraft() {
@@ -396,7 +421,12 @@ async function openPipWindow() {
             width: PIP_WIDTH,
             height: PIP_HEIGHT,
         });
+        isGenerating = false;
         buildPipDocument(pipWindow);
+        void loadSillyTavernStatusHelpers().then(() => {
+            syncGenerationState();
+            refreshPip();
+        });
         registerPipEventListeners();
         pipWindow.addEventListener('pagehide', cleanupPip, { once: true });
         refreshPip();
@@ -626,6 +656,7 @@ function handleEvent(eventName) {
         isGenerating = false;
     }
 
+    syncGenerationState();
     refreshPip();
 }
 
