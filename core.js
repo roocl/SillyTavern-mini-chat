@@ -76,6 +76,37 @@ export function escapeHtml(value) {
         .replaceAll("'", '&#39;');
 }
 
+export function escapeAttribute(value) {
+    return escapeHtml(value);
+}
+
+export function splitHtmlDocument(value) {
+    const text = String(value ?? '');
+    const match = text.match(/(?:<!doctype\s+html[^>]*>\s*)?<html[\s>]/i);
+    if (!match || match.index === undefined) {
+        return null;
+    }
+
+    return {
+        before: text.slice(0, match.index),
+        document: text.slice(match.index),
+    };
+}
+
+export function formatHtmlDocumentMessage(value) {
+    const split = splitHtmlDocument(value);
+    if (!split) {
+        return null;
+    }
+
+    const before = split.before.trim()
+        ? `${escapeHtml(split.before.trim()).replaceAll('\n', '<br>')}<br>`
+        : '';
+    const source = escapeAttribute(split.document.trim());
+
+    return `${before}<iframe class="pip-mini-chat-html-preview" sandbox="allow-same-origin" srcdoc="${source}"></iframe>`;
+}
+
 export function formatLatestAssistantMessage({ chat, formatter }) {
     const latest = findLatestAssistantMessage(chat);
     if (!latest) {
@@ -83,6 +114,11 @@ export function formatLatestAssistantMessage({ chat, formatter }) {
     }
 
     const { message, index } = latest;
+    const htmlDocument = formatHtmlDocumentMessage(message.mes);
+    if (htmlDocument) {
+        return htmlDocument;
+    }
+
     if (typeof formatter === 'function') {
         return formatter(message.mes, message.name, false, false, index);
     }

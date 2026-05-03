@@ -217,11 +217,11 @@ function getPipStyles() {
         * { box-sizing: border-box; }
         * {
             scrollbar-color: var(--grey7070a, var(--SmartThemeBorderColor, #8aa5bb)) color-mix(in srgb, var(--SmartThemeBlurTintColor, #171717) 70%, transparent);
-            scrollbar-width: thin;
+            scrollbar-width: auto;
         }
         *::-webkit-scrollbar {
-            width: 9px;
-            height: 9px;
+            width: 14px;
+            height: 14px;
         }
         *::-webkit-scrollbar-track {
             background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #171717) 72%, transparent);
@@ -235,9 +235,14 @@ function getPipStyles() {
         *::-webkit-scrollbar-thumb:hover {
             background: var(--SmartThemeUnderlineColor, var(--grey7070a, #8aa5bb));
         }
+        html {
+            height: 100%;
+            overflow: hidden;
+        }
         body {
             margin: 0;
-            min-height: 100vh;
+            height: 100%;
+            overflow: hidden;
             background: var(--SmartThemeBlurTintColor, #171717);
             color: var(--SmartThemeBodyColor, #f4f4f5);
         }
@@ -246,6 +251,7 @@ function getPipStyles() {
             grid-template-rows: auto 1fr auto auto;
             height: 100vh;
             min-height: 260px;
+            overflow: hidden;
         }
         .pip-mini-chat__header {
             display: flex;
@@ -280,11 +286,25 @@ function getPipStyles() {
             color: #d33;
         }
         .pip-mini-chat__output {
-            overflow: auto;
+            min-height: 0;
+            overflow-x: hidden;
+            overflow-y: auto;
             padding: 12px;
             font-size: 14px;
             line-height: 1.55;
             overflow-wrap: anywhere;
+        }
+        .pip-mini-chat__output > * {
+            max-width: 100%;
+        }
+        .pip-mini-chat-html-preview {
+            display: block;
+            width: 100%;
+            height: min(320px, 72vh);
+            margin: 8px 0 0;
+            border: 1px solid var(--SmartThemeBorderColor, #303036);
+            border-radius: 8px;
+            background: #fff;
         }
         .pip-mini-chat-empty {
             color: var(--SmartThemeQuoteColor, #a1a1aa);
@@ -684,10 +704,7 @@ function registerSettingsPanel() {
     panel.innerHTML = `
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>
-                    ${getLauncherIcon()}
-                    <span>小窗模式</span>
-                </b>
+                <b>小窗模式</b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
