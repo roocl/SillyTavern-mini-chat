@@ -681,18 +681,24 @@ function registerSettingsPanel() {
 
     const panel = document.createElement('div');
     panel.id = 'pip-mini-chat-settings';
-    panel.className = 'pip-mini-chat-settings';
     panel.innerHTML = `
-        <div class="pip-mini-chat-settings__header">
-            ${getLauncherIcon()}
-            <span>小窗模式</span>
-        </div>
-        <label class="pip-mini-chat-settings__row">
-            <input id="pip-mini-chat-compatible-send-mode" type="checkbox">
-            <span>兼容发送拦截插件</span>
-        </label>
-        <div class="pip-mini-chat-settings__hint">
-            开启后，小窗发送前会向主页面发送按钮发出一次发送意图信号，用于兼容数据库、剧情规划等拦截脚本。
+        <div class="inline-drawer">
+            <div class="inline-drawer-toggle inline-drawer-header">
+                <b>
+                    ${getLauncherIcon()}
+                    <span>小窗模式</span>
+                </b>
+                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+            </div>
+            <div class="inline-drawer-content">
+                <label class="checkbox_label pip-mini-chat-settings__row" for="pip-mini-chat-compatible-send-mode">
+                    <input id="pip-mini-chat-compatible-send-mode" type="checkbox" class="checkbox">
+                    <span>兼容发送拦截插件</span>
+                </label>
+                <small class="pip-mini-chat-settings__hint">
+                    开启后，小窗发送前会向主页面发送按钮发出一次发送意图信号，用于兼容数据库、剧情规划等拦截脚本。
+                </small>
+            </div>
         </div>
     `;
 
