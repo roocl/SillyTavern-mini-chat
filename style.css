@@ -23,11 +23,16 @@
     font-size: 12px;
     font-weight: 700;
     line-height: 1;
-    cursor: pointer;
+    cursor: grab;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    touch-action: none;
     user-select: none;
 }
 
 #pip-mini-chat-floating-open:hover {
     filter: brightness(1.12);
+}
+
+#pip-mini-chat-floating-open:active {
+    cursor: grabbing;
 }

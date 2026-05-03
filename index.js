@@ -3,6 +3,7 @@ import {
     buildEventList,
     formatLatestAssistantMessage,
     getLauncherTargets,
+    normalizeFloatingPosition,
     sendDraftToSillyTavern,
 } from './core.js';
 
@@ -10,6 +11,8 @@ const EXTENSION_NAME = 'pip-mini-chat';
 const PIP_WIDTH = 380;
 const PIP_HEIGHT = 360;
 const LAUNCHER_RETRY_LIMIT = 20;
+const FLOATING_POSITION_KEY = 'pip-mini-chat-floating-position';
+const FLOATING_DRAG_MARGIN = 8;
 
 let pipWindow = null;
 let pipElements = null;
@@ -30,7 +33,7 @@ function getEventTypes(context) {
 function notifyError(message, error = null) {
     console.error(`[${EXTENSION_NAME}] ${message}`, error ?? '');
     if (globalThis.toastr?.error) {
-        globalThis.toastr.error(message, 'PiP Mini Chat');
+        globalThis.toastr.error(message, '小窗模式');
     }
     setStatus(message, 'error');
 }
@@ -324,11 +327,19 @@ function createLauncherButton({ id, variant }) {
         : 'pip-mini-chat-floating-launcher interactable';
     button.tabIndex = 0;
     button.role = 'button';
-    button.title = 'Open PiP Mini Chat';
+    button.title = 'Open small window mode';
     button.innerHTML = variant === 'menu'
-        ? '<span class="pip-mini-chat-icon">PiP</span><span>PiP Mini Chat</span>'
+        ? '<span class="pip-mini-chat-icon">PiP</span><span>小窗模式</span>'
         : '<span aria-hidden="true">PiP</span>';
-    button.addEventListener('click', () => void openPipWindow());
+    button.addEventListener('click', event => {
+        if (button.dataset.dragMoved === 'true') {
+            event.preventDefault();
+            button.dataset.dragMoved = 'false';
+            return;
+        }
+
+        void openPipWindow();
+    });
     button.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -336,7 +347,131 @@ function createLauncherButton({ id, variant }) {
         }
     });
 
+    if (variant === 'floating') {
+        restoreFloatingLauncherPosition(button);
+        enableFloatingLauncherDrag(button);
+    }
+
     return button;
+}
+
+function getStoredFloatingPosition() {
+    try {
+        const raw = localStorage.getItem(FLOATING_POSITION_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+}
+
+function storeFloatingPosition(position) {
+    try {
+        localStorage.setItem(FLOATING_POSITION_KEY, JSON.stringify(position));
+    } catch {
+        // Position persistence is a convenience only.
+    }
+}
+
+function getFloatingLauncherSize(button) {
+    const rect = button.getBoundingClientRect();
+    return {
+        width: rect.width || 44,
+        height: rect.height || 36,
+    };
+}
+
+function applyFloatingLauncherPosition(button, position) {
+    button.style.left = `${position.left}px`;
+    button.style.top = `${position.top}px`;
+    button.style.right = 'auto';
+    button.style.bottom = 'auto';
+}
+
+function restoreFloatingLauncherPosition(button) {
+    const stored = getStoredFloatingPosition();
+    if (!stored || !Number.isFinite(stored.left) || !Number.isFinite(stored.top)) {
+        return;
+    }
+
+    const size = getFloatingLauncherSize(button);
+    applyFloatingLauncherPosition(button, normalizeFloatingPosition({
+        left: stored.left,
+        top: stored.top,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        elementWidth: size.width,
+        elementHeight: size.height,
+        margin: FLOATING_DRAG_MARGIN,
+    }));
+}
+
+function enableFloatingLauncherDrag(button) {
+    let dragState = null;
+
+    button.addEventListener('pointerdown', event => {
+        if (event.button !== 0) {
+            return;
+        }
+
+        const rect = button.getBoundingClientRect();
+        dragState = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startY: event.clientY,
+            left: rect.left,
+            top: rect.top,
+            moved: false,
+        };
+        button.setPointerCapture?.(event.pointerId);
+    });
+
+    button.addEventListener('pointermove', event => {
+        if (!dragState || event.pointerId !== dragState.pointerId) {
+            return;
+        }
+
+        const deltaX = event.clientX - dragState.startX;
+        const deltaY = event.clientY - dragState.startY;
+        if (Math.abs(deltaX) + Math.abs(deltaY) > 4) {
+            dragState.moved = true;
+        }
+
+        const size = getFloatingLauncherSize(button);
+        const position = normalizeFloatingPosition({
+            left: dragState.left + deltaX,
+            top: dragState.top + deltaY,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            elementWidth: size.width,
+            elementHeight: size.height,
+            margin: FLOATING_DRAG_MARGIN,
+        });
+        applyFloatingLauncherPosition(button, position);
+    });
+
+    button.addEventListener('pointerup', event => {
+        if (!dragState || event.pointerId !== dragState.pointerId) {
+            return;
+        }
+
+        button.releasePointerCapture?.(event.pointerId);
+        const position = {
+            left: button.getBoundingClientRect().left,
+            top: button.getBoundingClientRect().top,
+        };
+        storeFloatingPosition(position);
+
+        if (dragState.moved) {
+            button.dataset.dragMoved = 'true';
+            window.setTimeout(() => {
+                button.dataset.dragMoved = 'false';
+            }, 150);
+        }
+
+        dragState = null;
+    });
+
+    window.addEventListener('resize', () => restoreFloatingLauncherPosition(button));
 }
 
 function registerLauncher() {

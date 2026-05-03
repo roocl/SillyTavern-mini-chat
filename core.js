@@ -130,3 +130,21 @@ export function getLauncherTargets(doc) {
 
     return targets;
 }
+
+export function normalizeFloatingPosition({
+    left,
+    top,
+    viewportWidth,
+    viewportHeight,
+    elementWidth,
+    elementHeight,
+    margin = 8,
+}) {
+    const maxLeft = Math.max(margin, viewportWidth - elementWidth - margin);
+    const maxTop = Math.max(margin, viewportHeight - elementHeight - margin);
+
+    return {
+        left: Math.min(Math.max(left, margin), maxLeft),
+        top: Math.min(Math.max(top, margin), maxTop),
+    };
+}
