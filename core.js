@@ -110,6 +110,37 @@ export function splitHtmlDocument(value) {
     };
 }
 
+export function getFirstTagContent(html, tagName) {
+    const match = String(html ?? '').match(new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'));
+    return match ? match[1] : '';
+}
+
+export function getScriptTags(html) {
+    return String(html ?? '').match(/<script\b[\s\S]*?<\/script>/gi) ?? [];
+}
+
+export function removeScriptTags(html) {
+    return String(html ?? '').replace(/<script\b[\s\S]*?<\/script>/gi, '');
+}
+
+export function getHeadRenderTags(html) {
+    const head = getFirstTagContent(html, 'head');
+    return (head.match(/<style\b[\s\S]*?<\/style>|<link\b[^>]*>/gi) ?? []).join('');
+}
+
+export function getBodyContent(html) {
+    const body = getFirstTagContent(html, 'body');
+    if (body) {
+        return body;
+    }
+
+    return String(html ?? '')
+        .replace(/<!doctype\s+html[^>]*>/i, '')
+        .replace(/<html\b[^>]*>/i, '')
+        .replace(/<\/html>/i, '')
+        .replace(/<head\b[\s\S]*?<\/head>/i, '');
+}
+
 export function formatHtmlDocumentMessage(value) {
     const split = splitHtmlDocument(value);
     if (!split) {
@@ -119,9 +150,11 @@ export function formatHtmlDocumentMessage(value) {
     const before = split.before.trim()
         ? `${escapeHtml(split.before.trim()).replaceAll('\n', '<br>')}<br>`
         : '';
-    const source = escapeAttribute(split.document.trim());
+    const headTags = getHeadRenderTags(split.document);
+    const bodyContent = removeScriptTags(getBodyContent(split.document));
+    const scripts = getScriptTags(split.document).join('');
 
-    return `${before}<iframe class="pip-mini-chat-html-preview" sandbox="allow-same-origin" srcdoc="${source}"></iframe>`;
+    return `${before}<div class="pip-mini-chat-html-document">${headTags}${bodyContent}${scripts}</div>`;
 }
 
 export function formatLatestAssistantMessage({ chat, formatter }) {

@@ -31,6 +31,7 @@ let isGenerating = false;
 let cleanupPipEventListeners = null;
 let launcherRetryCount = 0;
 let launcherRetryTimer = null;
+let lastRenderedOutputHtml = '';
 let compatibleSendMode = readBooleanSetting({
     storage: globalThis.localStorage,
     key: COMPATIBLE_SEND_MODE_KEY,
@@ -83,12 +84,17 @@ function refreshPip() {
 
     syncGenerationState();
     const context = getContext();
-    pipElements.title.textContent = getTitle(context);
-    pipElements.output.innerHTML = formatLatestAssistantMessage({
+    const outputHtml = formatLatestAssistantMessage({
         chat: context?.chat,
         formatter: context?.messageFormatting,
     });
-    resizeHtmlPreviewFrames(pipElements.output);
+    pipElements.title.textContent = getTitle(context);
+    if (outputHtml !== lastRenderedOutputHtml) {
+        lastRenderedOutputHtml = outputHtml;
+        pipElements.output.innerHTML = outputHtml;
+        bridgeHostGlobalsToPipWindow();
+        executeOutputScripts(pipElements.output);
+    }
     updateControls();
 }
 
@@ -299,15 +305,15 @@ function getPipStyles() {
         .pip-mini-chat__output > * {
             max-width: 100%;
         }
-        .pip-mini-chat-html-preview {
-            display: block;
+        .pip-mini-chat-html-document {
             width: 100%;
-            min-height: 240px;
-            height: 360px;
-            margin: 8px 0 0;
-            border: 1px solid var(--SmartThemeBorderColor, #303036);
-            border-radius: 8px;
-            background: #fff;
+            max-width: 100%;
+        }
+        .pip-mini-chat-html-document img,
+        .pip-mini-chat-html-document svg,
+        .pip-mini-chat-html-document canvas,
+        .pip-mini-chat-html-document video {
+            max-width: 100%;
         }
         .pip-mini-chat-empty {
             color: var(--SmartThemeQuoteColor, #a1a1aa);
@@ -449,26 +455,49 @@ function resizePipInput() {
     pipElements.input.style.overflowY = rawLineCount > 3 ? 'auto' : 'hidden';
 }
 
-function resizeHtmlPreviewFrames(container) {
-    const frames = container?.querySelectorAll?.('.pip-mini-chat-html-preview') ?? [];
+function bridgeHostGlobalsToPipWindow() {
+    if (!pipWindow || pipWindow.closed) {
+        return;
+    }
 
-    for (const frame of frames) {
-        const resize = () => {
+    const names = [
+        '$',
+        'jQuery',
+        '_',
+        'toastr',
+        'SillyTavern',
+        'TavernHelper',
+        'Mvu',
+        'getAllVariables',
+        'waitGlobalInitialized',
+        'eventOn',
+        'eventMakeLast',
+        'eventSource',
+        'eventTypes',
+        'errorCatched',
+    ];
+
+    for (const name of names) {
+        if (globalThis[name] !== undefined) {
             try {
-                const doc = frame.contentDocument;
-                const height = Math.max(
-                    doc?.documentElement?.scrollHeight ?? 0,
-                    doc?.body?.scrollHeight ?? 0,
-                    240,
-                );
-                frame.style.height = `${Math.min(height, 6000)}px`;
-            } catch (error) {
-                console.debug(`[${EXTENSION_NAME}] Could not resize HTML preview`, error);
+                pipWindow[name] = globalThis[name];
+            } catch {
+                // Best-effort compatibility bridge for user-provided status HTML.
             }
-        };
+        }
+    }
+}
 
-        frame.addEventListener('load', resize, { once: true });
-        requestAnimationFrame(resize);
+function executeOutputScripts(container) {
+    const scripts = container?.querySelectorAll?.('script') ?? [];
+
+    for (const script of scripts) {
+        const replacement = pipWindow.document.createElement('script');
+        for (const attribute of script.attributes) {
+            replacement.setAttribute(attribute.name, attribute.value);
+        }
+        replacement.textContent = script.textContent;
+        script.replaceWith(replacement);
     }
 }
 
@@ -478,6 +507,7 @@ function cleanupPip() {
     pipWindow = null;
     pipElements = null;
     isGenerating = false;
+    lastRenderedOutputHtml = '';
 }
 
 async function openPipWindow() {
