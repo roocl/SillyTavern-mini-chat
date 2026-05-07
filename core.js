@@ -80,8 +80,25 @@ export function escapeAttribute(value) {
     return escapeHtml(value);
 }
 
+export function decodeHtmlEntities(value) {
+    return String(value ?? '')
+        .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+        .replace(/&#(\d+);/g, (_, decimal) => String.fromCodePoint(Number.parseInt(decimal, 10)))
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&amp;', '&');
+}
+
+export function unwrapHtmlCodeFence(value) {
+    const text = String(value ?? '').trim();
+    const match = text.match(/^```(?:html)?\s*\n([\s\S]*?)\n```$/i);
+    return match ? match[1].trim() : String(value ?? '');
+}
+
 export function splitHtmlDocument(value) {
-    const text = String(value ?? '');
+    const text = unwrapHtmlCodeFence(decodeHtmlEntities(value));
     const match = text.match(/(?:<!doctype\s+html[^>]*>\s*)?<html[\s>]/i);
     if (!match || match.index === undefined) {
         return null;
@@ -89,7 +106,7 @@ export function splitHtmlDocument(value) {
 
     return {
         before: text.slice(0, match.index),
-        document: text.slice(match.index),
+        document: text.slice(match.index).replace(/\n```$/g, '').trim(),
     };
 }
 

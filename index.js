@@ -88,6 +88,7 @@ function refreshPip() {
         chat: context?.chat,
         formatter: context?.messageFormatting,
     });
+    resizeHtmlPreviewFrames(pipElements.output);
     updateControls();
 }
 
@@ -293,6 +294,7 @@ function getPipStyles() {
             font-size: 14px;
             line-height: 1.55;
             overflow-wrap: anywhere;
+            scrollbar-gutter: stable;
         }
         .pip-mini-chat__output > * {
             max-width: 100%;
@@ -300,7 +302,8 @@ function getPipStyles() {
         .pip-mini-chat-html-preview {
             display: block;
             width: 100%;
-            height: min(320px, 72vh);
+            min-height: 240px;
+            height: 360px;
             margin: 8px 0 0;
             border: 1px solid var(--SmartThemeBorderColor, #303036);
             border-radius: 8px;
@@ -444,6 +447,29 @@ function resizePipInput() {
     pipElements.input.rows = rowCount;
     pipElements.input.style.height = `${height}px`;
     pipElements.input.style.overflowY = rawLineCount > 3 ? 'auto' : 'hidden';
+}
+
+function resizeHtmlPreviewFrames(container) {
+    const frames = container?.querySelectorAll?.('.pip-mini-chat-html-preview') ?? [];
+
+    for (const frame of frames) {
+        const resize = () => {
+            try {
+                const doc = frame.contentDocument;
+                const height = Math.max(
+                    doc?.documentElement?.scrollHeight ?? 0,
+                    doc?.body?.scrollHeight ?? 0,
+                    240,
+                );
+                frame.style.height = `${Math.min(height, 6000)}px`;
+            } catch (error) {
+                console.debug(`[${EXTENSION_NAME}] Could not resize HTML preview`, error);
+            }
+        };
+
+        frame.addEventListener('load', resize, { once: true });
+        requestAnimationFrame(resize);
+    }
 }
 
 function cleanupPip() {
