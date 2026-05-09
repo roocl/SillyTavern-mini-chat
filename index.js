@@ -95,6 +95,8 @@ function refreshPip() {
         pipElements.output.innerHTML = outputHtml;
         bridgeHostGlobalsToPipWindow();
         executeOutputScripts(pipElements.output);
+        updatePipScrollbar();
+        pipWindow.setTimeout(updatePipScrollbar, 0);
     }
     updateControls();
 }
@@ -224,23 +226,22 @@ function getPipStyles() {
         }
         * { box-sizing: border-box; }
         html {
-            min-height: 100%;
-            overflow-x: hidden;
-            overflow-y: auto;
+            height: 100%;
+            overflow: hidden;
         }
         body {
             margin: 0;
-            min-height: 100%;
-            overflow-x: hidden;
-            overflow-y: auto;
+            height: 100%;
+            overflow: hidden;
             background: var(--SmartThemeBlurTintColor, #171717);
             color: var(--SmartThemeBodyColor, #f4f4f5);
         }
         .pip-mini-chat {
             display: grid;
-            grid-template-rows: auto auto auto auto;
-            min-height: max(260px, 100vh);
-            overflow: visible;
+            grid-template-rows: auto minmax(0, 1fr) auto auto;
+            height: 100vh;
+            min-height: 260px;
+            overflow: hidden;
         }
         .pip-mini-chat__header {
             display: flex;
@@ -274,14 +275,58 @@ function getPipStyles() {
         .pip-mini-chat__status[data-state="error"] {
             color: #d33;
         }
+        .pip-mini-chat__scroll-wrap {
+            position: relative;
+            min-height: 0;
+            overflow: hidden;
+        }
         .pip-mini-chat__output {
+            height: 100%;
             min-height: 120px;
             overflow-x: hidden;
-            overflow-y: visible;
-            padding: 12px;
+            overflow-y: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            padding: 12px 26px 12px 12px;
             font-size: 14px;
             line-height: 1.55;
             overflow-wrap: anywhere;
+        }
+        .pip-mini-chat__output::-webkit-scrollbar {
+            display: none;
+        }
+        .pip-mini-chat__scrollbar {
+            position: absolute;
+            top: 6px;
+            right: 4px;
+            bottom: 6px;
+            width: 14px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--SmartThemeBorderColor, #303036) 38%, transparent);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease;
+        }
+        .pip-mini-chat__scrollbar[data-visible="true"] {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .pip-mini-chat__scroll-thumb {
+            position: absolute;
+            left: 3px;
+            top: 0;
+            width: 8px;
+            min-height: 24px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--SmartThemeQuoteColor, #a1a1aa) 78%, var(--SmartThemeBodyColor, #f4f4f5) 22%);
+            cursor: grab;
+        }
+        .pip-mini-chat__scroll-thumb:hover,
+        .pip-mini-chat__scroll-thumb:active {
+            background: var(--SmartThemeBodyColor, #f4f4f5);
+        }
+        .pip-mini-chat__scroll-thumb:active {
+            cursor: grabbing;
         }
         .pip-mini-chat__output > * {
             max-width: 100%;
@@ -301,10 +346,6 @@ function getPipStyles() {
         }
         .pip-mini-chat__input {
             display: block;
-            align-self: end;
-            position: sticky;
-            bottom: 58px;
-            z-index: 2;
             width: calc(100% - 24px);
             height: 36px;
             min-height: 36px;
@@ -326,10 +367,6 @@ function getPipStyles() {
         }
         .pip-mini-chat__actions {
             display: grid;
-            align-self: end;
-            position: sticky;
-            bottom: 0;
-            z-index: 2;
             grid-template-columns: 1fr 1fr 1fr;
             gap: 8px;
             padding: 0 12px 12px;
@@ -472,8 +509,13 @@ function buildPipDocument(targetWindow) {
                 <div class="pip-mini-chat__title"></div>
                 <div class="pip-mini-chat__status" data-state="idle">Idle</div>
             </header>
-            <section class="pip-mini-chat__output" aria-live="polite"></section>
-            <textarea class="pip-mini-chat__input" rows="1" placeholder="Message"></textarea>
+            <div class="pip-mini-chat__scroll-wrap">
+                <section class="pip-mini-chat__output" aria-live="polite"></section>
+                <div class="pip-mini-chat__scrollbar" aria-hidden="true">
+                    <div class="pip-mini-chat__scroll-thumb"></div>
+                </div>
+            </div>
+            <textarea id="send_textarea" class="pip-mini-chat__input" rows="1" placeholder="Message"></textarea>
             <div class="pip-mini-chat__actions">
                 <button class="pip-mini-chat__button pip-mini-chat__button--send" type="button">Send</button>
                 <button class="pip-mini-chat__button pip-mini-chat__button--regenerate" type="button">Retry</button>
@@ -491,6 +533,8 @@ function buildPipDocument(targetWindow) {
         title: doc.querySelector('.pip-mini-chat__title'),
         status: doc.querySelector('.pip-mini-chat__status'),
         output: doc.querySelector('.pip-mini-chat__output'),
+        scrollbar: doc.querySelector('.pip-mini-chat__scrollbar'),
+        scrollbarThumb: doc.querySelector('.pip-mini-chat__scroll-thumb'),
         input: doc.querySelector('.pip-mini-chat__input'),
         send: doc.querySelector('.pip-mini-chat__button--send'),
         regenerate: doc.querySelector('.pip-mini-chat__button--regenerate'),
@@ -498,6 +542,7 @@ function buildPipDocument(targetWindow) {
     };
 
     resizePipInput();
+    setupPipScrollbar();
     pipElements.input.addEventListener('input', () => {
         resizePipInput();
         updateControls();
@@ -527,14 +572,164 @@ function resizePipInput() {
     pipElements.input.style.overflowY = rawLineCount > 3 ? 'auto' : 'hidden';
 }
 
+function setupPipScrollbar() {
+    if (!pipElements?.output || !pipElements?.scrollbar || !pipElements?.scrollbarThumb || !pipWindow) {
+        return;
+    }
+
+    let dragState = null;
+
+    pipElements.output.addEventListener('scroll', updatePipScrollbar);
+    pipWindow.addEventListener('resize', updatePipScrollbar);
+
+    const resizeObserver = new pipWindow.ResizeObserver(updatePipScrollbar);
+    resizeObserver.observe(pipElements.output);
+
+    const mutationObserver = new pipWindow.MutationObserver(updatePipScrollbar);
+    mutationObserver.observe(pipElements.output, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true,
+    });
+
+    pipElements.scrollbar.addEventListener('pointerdown', event => {
+        if (pipElements.scrollbar.dataset.visible !== 'true') {
+            return;
+        }
+
+        event.preventDefault();
+        const barRect = pipElements.scrollbar.getBoundingClientRect();
+        const thumbRect = pipElements.scrollbarThumb.getBoundingClientRect();
+        const clickedThumb = event.target === pipElements.scrollbarThumb;
+        const thumbOffset = clickedThumb
+            ? event.clientY - thumbRect.top
+            : thumbRect.height / 2;
+
+        dragState = {
+            pointerId: event.pointerId,
+            offsetY: thumbOffset,
+        };
+
+        pipElements.scrollbar.setPointerCapture?.(event.pointerId);
+        updateScrollFromThumbPosition(event.clientY - barRect.top - thumbOffset);
+    });
+
+    pipElements.scrollbar.addEventListener('pointermove', event => {
+        if (!dragState || event.pointerId !== dragState.pointerId) {
+            return;
+        }
+
+        event.preventDefault();
+        const barRect = pipElements.scrollbar.getBoundingClientRect();
+        updateScrollFromThumbPosition(event.clientY - barRect.top - dragState.offsetY);
+    });
+
+    pipElements.scrollbar.addEventListener('pointerup', event => {
+        if (!dragState || event.pointerId !== dragState.pointerId) {
+            return;
+        }
+
+        pipElements.scrollbar.releasePointerCapture?.(event.pointerId);
+        dragState = null;
+    });
+
+    pipWindow.addEventListener('pagehide', () => {
+        resizeObserver.disconnect();
+        mutationObserver.disconnect();
+    }, { once: true });
+
+    updatePipScrollbar();
+}
+
+function updateScrollFromThumbPosition(thumbTop) {
+    const output = pipElements?.output;
+    const scrollbar = pipElements?.scrollbar;
+    const thumb = pipElements?.scrollbarThumb;
+    if (!output || !scrollbar || !thumb) {
+        return;
+    }
+
+    const trackHeight = scrollbar.clientHeight;
+    const thumbHeight = thumb.offsetHeight;
+    const scrollRange = output.scrollHeight - output.clientHeight;
+    const thumbRange = Math.max(trackHeight - thumbHeight, 1);
+    const clampedTop = Math.min(Math.max(thumbTop, 0), thumbRange);
+    output.scrollTop = (clampedTop / thumbRange) * scrollRange;
+}
+
+function updatePipScrollbar() {
+    const output = pipElements?.output;
+    const scrollbar = pipElements?.scrollbar;
+    const thumb = pipElements?.scrollbarThumb;
+    if (!output || !scrollbar || !thumb) {
+        return;
+    }
+
+    const scrollHeight = output.scrollHeight;
+    const clientHeight = output.clientHeight;
+    const hasOverflow = scrollHeight > clientHeight + 1;
+    scrollbar.dataset.visible = String(hasOverflow);
+
+    if (!hasOverflow) {
+        thumb.style.height = '24px';
+        thumb.style.transform = 'translateY(0)';
+        return;
+    }
+
+    const trackHeight = scrollbar.clientHeight;
+    const thumbHeight = Math.max(24, Math.round((clientHeight / scrollHeight) * trackHeight));
+    const thumbRange = Math.max(trackHeight - thumbHeight, 1);
+    const scrollRange = Math.max(scrollHeight - clientHeight, 1);
+    const top = Math.round((output.scrollTop / scrollRange) * thumbRange);
+
+    thumb.style.height = `${thumbHeight}px`;
+    thumb.style.transform = `translateY(${top}px)`;
+}
+
+function createPipJQueryBridge(hostJQuery) {
+    const pipDocument = pipWindow?.document;
+    if (typeof hostJQuery !== 'function' || !pipDocument) {
+        return hostJQuery;
+    }
+
+    const bridge = function pipJQueryBridge(selector, context) {
+        if (typeof selector === 'function') {
+            if (pipDocument.readyState === 'loading') {
+                pipDocument.addEventListener('DOMContentLoaded', () => selector(bridge), { once: true });
+            } else {
+                selector(bridge);
+            }
+            return hostJQuery(pipDocument);
+        }
+
+        if (typeof selector === 'string' && context === undefined) {
+            return hostJQuery(selector, pipDocument);
+        }
+
+        return hostJQuery(selector, context);
+    };
+
+    Object.setPrototypeOf(bridge, Object.getPrototypeOf(hostJQuery));
+    Object.assign(bridge, hostJQuery);
+    bridge.fn = hostJQuery.fn;
+
+    return bridge;
+}
+
 function bridgeHostGlobalsToPipWindow() {
     if (!pipWindow || pipWindow.closed) {
         return;
     }
 
+    const hostJQuery = globalThis.jQuery ?? globalThis.$;
+    if (typeof hostJQuery === 'function') {
+        const pipJQuery = createPipJQueryBridge(hostJQuery);
+        pipWindow.$ = pipJQuery;
+        pipWindow.jQuery = pipJQuery;
+    }
+
     const names = [
-        '$',
-        'jQuery',
         '_',
         'toastr',
         'SillyTavern',
