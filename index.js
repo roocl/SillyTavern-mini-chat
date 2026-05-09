@@ -3,6 +3,7 @@ import {
     buildThemeVariableCss,
     buildEventList,
     collectThemeVariables,
+    findLatestAssistantMessage,
     formatLatestAssistantMessage,
     getLauncherTargets,
     getTextareaRowCount,
@@ -84,7 +85,7 @@ function refreshPip() {
 
     syncGenerationState();
     const context = getContext();
-    const outputHtml = formatLatestAssistantMessage({
+    const outputHtml = getRenderedLatestAssistantHtml(context) ?? formatLatestAssistantMessage({
         chat: context?.chat,
         formatter: context?.messageFormatting,
     });
@@ -222,26 +223,6 @@ function getPipStyles() {
             font-size: var(--mainFontSize, 14px);
         }
         * { box-sizing: border-box; }
-        * {
-            scrollbar-color: var(--grey7070a, var(--SmartThemeBorderColor, #8aa5bb)) color-mix(in srgb, var(--SmartThemeBlurTintColor, #171717) 70%, transparent);
-            scrollbar-width: auto;
-        }
-        *::-webkit-scrollbar {
-            width: 14px;
-            height: 14px;
-        }
-        *::-webkit-scrollbar-track {
-            background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #171717) 72%, transparent);
-            border-radius: 999px;
-        }
-        *::-webkit-scrollbar-thumb {
-            background: color-mix(in srgb, var(--grey7070a, var(--SmartThemeBorderColor, #8aa5bb)) 82%, var(--SmartThemeBodyColor, #f4f4f5) 18%);
-            border: 2px solid color-mix(in srgb, var(--SmartThemeBlurTintColor, #171717) 72%, transparent);
-            border-radius: 999px;
-        }
-        *::-webkit-scrollbar-thumb:hover {
-            background: var(--SmartThemeUnderlineColor, var(--grey7070a, #8aa5bb));
-        }
         html {
             height: 100%;
             overflow: hidden;
@@ -375,6 +356,55 @@ function getPipStyles() {
             background: color-mix(in srgb, var(--SmartThemeQuoteColor, #3f3f46) 38%, var(--SmartThemeBlurTintColor, #202024) 62%);
         }
     `;
+}
+
+function getRenderedLatestAssistantHtml(context) {
+    const latest = findLatestAssistantMessage(context?.chat);
+    if (!latest) {
+        return null;
+    }
+
+    const messageElement = findRenderedMessageElement(latest.index, context?.chat?.length);
+    const textElement = messageElement?.querySelector?.('.mes_text') ?? messageElement;
+    if (!textElement) {
+        return null;
+    }
+
+    const html = textElement.innerHTML?.trim();
+    return html || null;
+}
+
+function findRenderedMessageElement(messageIndex, chatLength) {
+    const exactSelectors = [
+        `.mes[mesid="${messageIndex}"]`,
+        `.mes[message_id="${messageIndex}"]`,
+        `.mes[data-message-id="${messageIndex}"]`,
+        `.mes[data-mes-id="${messageIndex}"]`,
+        `.mes[data-index="${messageIndex}"]`,
+    ];
+
+    for (const selector of exactSelectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+            return element;
+        }
+    }
+
+    const visibleMessages = [...document.querySelectorAll('.mes')];
+    if (!visibleMessages.length) {
+        return null;
+    }
+
+    const offset = Number.isFinite(chatLength) && chatLength > visibleMessages.length
+        ? chatLength - visibleMessages.length
+        : 0;
+    const visibleIndex = messageIndex - offset;
+
+    if (visibleIndex >= 0 && visibleIndex < visibleMessages.length) {
+        return visibleMessages[visibleIndex];
+    }
+
+    return visibleMessages[messageIndex] ?? null;
 }
 
 function copyThemeToPipDocument(targetDocument) {
