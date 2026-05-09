@@ -119,6 +119,20 @@ function updateControls() {
     }
 }
 
+function writePipInput(text, { append = true } = {}) {
+    if (!pipElements?.input) {
+        return false;
+    }
+
+    const value = String(text ?? '');
+    pipElements.input.value = append
+        ? `${pipElements.input.value}${value}`
+        : value;
+    pipElements.input.dispatchEvent(new Event('input', { bubbles: true }));
+    pipElements.input.focus();
+    return true;
+}
+
 async function loadSendTextareaMessage() {
     if (sendTextareaMessage) {
         return sendTextareaMessage;
@@ -543,6 +557,7 @@ function buildPipDocument(targetWindow) {
 
     resizePipInput();
     setupPipScrollbar();
+    installPipInteractionFallbacks();
     pipElements.input.addEventListener('input', () => {
         resizePipInput();
         updateControls();
@@ -729,6 +744,18 @@ function bridgeHostGlobalsToPipWindow() {
         pipWindow.jQuery = pipJQuery;
     }
 
+    pipWindow.setPipMiniChatInput = text => writePipInput(text, { append: false });
+    pipWindow.appendPipMiniChatInput = text => writePipInput(text, { append: true });
+    pipWindow.triggerSlash = command => {
+        const inputMatch = String(command ?? '').match(/^\/setinput\s+([\s\S]*)$/i);
+        if (inputMatch) {
+            writePipInput(inputMatch[1], { append: false });
+            return true;
+        }
+
+        return globalThis.triggerSlash?.(command);
+    };
+
     const names = [
         '_',
         'toastr',
@@ -758,14 +785,71 @@ function bridgeHostGlobalsToPipWindow() {
 function executeOutputScripts(container) {
     const scripts = container?.querySelectorAll?.('script') ?? [];
 
-    for (const script of scripts) {
-        const replacement = pipWindow.document.createElement('script');
-        for (const attribute of script.attributes) {
-            replacement.setAttribute(attribute.name, attribute.value);
+    withPipDocumentCompatibility(() => {
+        for (const script of scripts) {
+            const replacement = pipWindow.document.createElement('script');
+            for (const attribute of script.attributes) {
+                replacement.setAttribute(attribute.name, attribute.value);
+            }
+            replacement.textContent = script.textContent;
+            script.replaceWith(replacement);
         }
-        replacement.textContent = script.textContent;
-        script.replaceWith(replacement);
+    });
+}
+
+function withPipDocumentCompatibility(callback) {
+    if (!pipWindow?.document || typeof callback !== 'function') {
+        return;
     }
+
+    const doc = pipWindow.document;
+    const originalAddEventListener = doc.addEventListener.bind(doc);
+    const originalWindowAddEventListener = pipWindow.addEventListener.bind(pipWindow);
+
+    const makeDomReadyCompat = original => function addEventListenerCompat(type, listener, options) {
+        if (type === 'DOMContentLoaded' && doc.readyState !== 'loading' && typeof listener === 'function') {
+            pipWindow.setTimeout(() => {
+                listener.call(doc, new Event('DOMContentLoaded'));
+            }, 0);
+        }
+
+        return original(type, listener, options);
+    };
+
+    doc.addEventListener = makeDomReadyCompat(originalAddEventListener);
+    pipWindow.addEventListener = makeDomReadyCompat(originalWindowAddEventListener);
+
+    try {
+        callback();
+    } finally {
+        doc.addEventListener = originalAddEventListener;
+        pipWindow.addEventListener = originalWindowAddEventListener;
+    }
+}
+
+function installPipInteractionFallbacks() {
+    if (!pipElements?.output) {
+        return;
+    }
+
+    pipElements.output.addEventListener('click', event => {
+        const target = event.target?.closest?.('[data-pip-input], .option-item');
+        if (!target) {
+            return;
+        }
+
+        const valueBeforeClick = pipElements.input.value;
+        pipWindow.setTimeout(() => {
+            if (pipElements.input.value !== valueBeforeClick) {
+                return;
+            }
+
+            const text = target.dataset.pipInput || target.querySelector?.('.option-text')?.textContent || target.textContent;
+            if (text?.trim()) {
+                writePipInput(text.trim(), { append: true });
+            }
+        }, 0);
+    });
 }
 
 function cleanupPip() {
