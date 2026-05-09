@@ -224,22 +224,23 @@ function getPipStyles() {
         }
         * { box-sizing: border-box; }
         html {
-            height: 100%;
-            overflow: hidden;
+            min-height: 100%;
+            overflow-x: hidden;
+            overflow-y: auto;
         }
         body {
             margin: 0;
-            height: 100%;
-            overflow: hidden;
+            min-height: 100%;
+            overflow-x: hidden;
+            overflow-y: auto;
             background: var(--SmartThemeBlurTintColor, #171717);
             color: var(--SmartThemeBodyColor, #f4f4f5);
         }
         .pip-mini-chat {
             display: grid;
-            grid-template-rows: auto 1fr auto auto;
-            height: 100vh;
-            min-height: 260px;
-            overflow: hidden;
+            grid-template-rows: auto auto auto auto;
+            min-height: max(260px, 100vh);
+            overflow: visible;
         }
         .pip-mini-chat__header {
             display: flex;
@@ -274,14 +275,13 @@ function getPipStyles() {
             color: #d33;
         }
         .pip-mini-chat__output {
-            min-height: 0;
+            min-height: 120px;
             overflow-x: hidden;
-            overflow-y: auto;
+            overflow-y: visible;
             padding: 12px;
             font-size: 14px;
             line-height: 1.55;
             overflow-wrap: anywhere;
-            scrollbar-gutter: stable;
         }
         .pip-mini-chat__output > * {
             max-width: 100%;
@@ -301,6 +301,10 @@ function getPipStyles() {
         }
         .pip-mini-chat__input {
             display: block;
+            align-self: end;
+            position: sticky;
+            bottom: 58px;
+            z-index: 2;
             width: calc(100% - 24px);
             height: 36px;
             min-height: 36px;
@@ -322,9 +326,14 @@ function getPipStyles() {
         }
         .pip-mini-chat__actions {
             display: grid;
+            align-self: end;
+            position: sticky;
+            bottom: 0;
+            z-index: 2;
             grid-template-columns: 1fr 1fr 1fr;
             gap: 8px;
             padding: 0 12px 12px;
+            background: var(--SmartThemeBlurTintColor, #171717);
         }
         .pip-mini-chat__button {
             min-height: 36px;
@@ -370,8 +379,41 @@ function getRenderedLatestAssistantHtml(context) {
         return null;
     }
 
-    const html = textElement.innerHTML?.trim();
+    const html = sanitizeRenderedMessageHtml(textElement);
     return html || null;
+}
+
+function sanitizeRenderedMessageHtml(textElement) {
+    const clone = textElement.cloneNode(true);
+    const hasRenderedBlock = clone.querySelector?.('.TH-render, .status-preview-wrapper, #ny-status');
+
+    if (hasRenderedBlock) {
+        removeRawHtmlSourceBlocks(clone);
+    }
+
+    return clone.innerHTML?.trim() ?? '';
+}
+
+function removeRawHtmlSourceBlocks(root) {
+    const candidates = [...root.querySelectorAll('p, pre, code, textarea, .mes_reasoning, .edit_textarea')];
+
+    for (const element of candidates) {
+        const text = element.textContent ?? '';
+        if (looksLikeRawHtmlSource(text)) {
+            element.remove();
+        }
+    }
+
+    for (const node of [...root.childNodes]) {
+        if (node.nodeType === Node.TEXT_NODE && looksLikeRawHtmlSource(node.textContent ?? '')) {
+            node.remove();
+        }
+    }
+}
+
+function looksLikeRawHtmlSource(text) {
+    const value = String(text ?? '');
+    return /<!doctype\s+html|<html[\s>]|&lt;!doctype\s+html|&lt;html[\s&gt;]/i.test(value);
 }
 
 function findRenderedMessageElement(messageIndex, chatLength) {
