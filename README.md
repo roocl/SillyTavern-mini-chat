@@ -1,19 +1,51 @@
-# PiP Mini Chat
+# 小窗模式
 
-PiP Mini Chat is a SillyTavern UI extension that opens a Chrome/Edge Document Picture-in-Picture window with the latest assistant reply and a plain-text input box.
+本插件代码全部由GPT-5.5开发、测试与推送。
 
-## Install
+小窗模式是一个 SillyTavern 第三方 UI 扩展，用于在 Chrome / Edge 中打开 Document Picture-in-Picture 小窗。小窗会悬浮在其他网页之上，显示当前聊天的最新回复，并提供简化输入栏，方便一边浏览其他页面一边继续游玩酒馆。
 
-Install this repository as a SillyTavern third-party extension. SillyTavern expects `manifest.json` at the repository root, which this extension provides.
+## 功能
 
-## Requirements
+- 使用浏览器 Document Picture-in-Picture 创建真正的独立小窗。
+- 显示当前聊天中最新一条非用户、非系统消息。
+- 继承 SillyTavern 当前 UI 主题的主要颜色、边框、按钮和文本风格。
+- 支持 HTML 美化内容渲染，并兼容常见前端卡片内的点击交互。
+- 小窗内提供输入框，支持 `Enter` 发送、`Shift + Enter` 换行。
+- 输入框初始为 1 行，最多自动扩展到 3 行，超过后在输入框内滚动。
+- 支持 `Send`、`Retry`、`Stop` 三个操作按钮。
+- 右下角入口按钮可拖动；再次点击入口按钮会关闭已打开的小窗。
+- 内容区使用插件自绘滑块，避免 Document PiP 原生滚动条命中偏移。
 
-- Chrome or Edge with Document Picture-in-Picture support.
-- SillyTavern running from `localhost` or HTTPS.
+## 设置
 
-## First Version Scope
+在 SillyTavern 的“扩展程序”设置页中，可以找到“小窗模式”选项栏。
 
-- Shows only the latest assistant reply.
-- Sends plain text only.
-- Supports Send and Stop.
-- Does not implement an in-page floating fallback.
+- 兼容发送拦截插件：开启后，小窗发送前会向主页面发送按钮发出一次发送意图信号，用于兼容数据库、剧情规划等会拦截发送流程的脚本。
+
+一般情况下可以保持关闭；如果你使用的小酒馆脚本需要监听主页面发送按钮点击事件，建议开启。
+
+## 安装方式
+
+1. 打开 SillyTavern。
+2. 进入“扩展程序”页面。
+3. 点击“安装扩展程序”。
+4. 输入本仓库地址：
+
+```text
+https://github.com/roocl/SillyTavern-mini-chat.git
+```
+
+5. 安装完成后刷新 SillyTavern 页面。
+6. 在右下角点击“小窗模式”按钮，或在扩展菜单中打开小窗。
+
+## 浏览器要求
+
+- 推荐 Chrome 或 Edge。
+- 需要浏览器支持 Document Picture-in-Picture API。
+- 本插件不是浏览器扩展，也不是桌面客户端插件；它是 SillyTavern UI 扩展。
+
+## 注意事项
+
+- 小窗必须由用户点击触发，浏览器不允许插件自动弹出 PiP 窗口。
+- 浏览器自带的 PiP 标题栏和窗口边框无法被插件主题化。
+- 第一优先级是轻量游玩体验，因此小窗不会复制完整 SillyTavern 页面，只保留最新回复、输入和基础操作。
