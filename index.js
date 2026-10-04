@@ -1,3 +1,5 @@
+import { createDraftSender, measureInputHeight } from './session.js';
+import { createMessageView } from './message-view.js';
 import {
     bindEventHandlers,
     buildThemeVariableCss,
@@ -6,7 +8,6 @@ import {
     findLatestAssistantMessage,
     formatLatestAssistantMessage,
     getLauncherTargets,
-    getTextareaRowCount,
     normalizeFloatingPosition,
     readBooleanSetting,
     readGenerationState,
@@ -33,6 +34,9 @@ let cleanupPipEventListeners = null;
 let launcherRetryCount = 0;
 let launcherRetryTimer = null;
 let lastRenderedOutputHtml = '';
+const draftSender = createDraftSender();
+let messageView = null;
+let openingPip = false;
 let compatibleSendMode = readBooleanSetting({
     storage: globalThis.localStorage,
     key: COMPATIBLE_SEND_MODE_KEY,
@@ -92,9 +96,7 @@ function refreshPip() {
     pipElements.title.textContent = getTitle(context);
     if (outputHtml !== lastRenderedOutputHtml) {
         lastRenderedOutputHtml = outputHtml;
-        pipElements.output.innerHTML = outputHtml;
-        bridgeHostGlobalsToPipWindow();
-        executeOutputScripts(pipElements.output);
+        messageView.render(outputHtml);
         updatePipScrollbar();
         pipWindow.setTimeout(updatePipScrollbar, 0);
     }
@@ -108,8 +110,8 @@ function updateControls() {
 
     syncGenerationState();
     const hasText = pipElements.input.value.trim().length > 0;
-    pipElements.send.disabled = isGenerating || !hasText;
-    pipElements.regenerate.disabled = isGenerating || !getContext()?.chat?.length;
+    pipElements.send.disabled = draftSender.pending || isGenerating || !hasText;
+    pipElements.regenerate.disabled = draftSender.pending || isGenerating || !getContext()?.chat?.length;
     pipElements.stop.disabled = !isGenerating;
 
     if (isGenerating) {
@@ -117,20 +119,6 @@ function updateControls() {
     } else if (pipElements.status.dataset.state !== 'error') {
         setStatus('Idle', 'idle');
     }
-}
-
-function writePipInput(text, { append = true } = {}) {
-    if (!pipElements?.input) {
-        return false;
-    }
-
-    const value = String(text ?? '');
-    pipElements.input.value = append
-        ? `${pipElements.input.value}${value}`
-        : value;
-    pipElements.input.dispatchEvent(new Event('input', { bubbles: true }));
-    pipElements.input.focus();
-    return true;
 }
 
 async function loadSendTextareaMessage() {
@@ -165,28 +153,37 @@ function syncGenerationState() {
 }
 
 async function sendDraft() {
-    if (!pipElements) {
+    if (!pipElements || draftSender.pending) {
         return;
     }
-
+    syncGenerationState();
+    if (isGenerating) return;
+    const elements = pipElements;
     try {
-        const sendMessage = await loadSendTextareaMessage();
-        const textarea = document.querySelector('#send_textarea');
-        const sendButton = compatibleSendMode ? document.querySelector('#send_but') : null;
-        await sendDraftToSillyTavern({
-            text: pipElements.input.value,
-            textarea,
-            inputEventFactory: () => new Event('input', { bubbles: true }),
-            sendTextareaMessage: sendMessage,
-            compatibleIntentTarget: sendButton,
-            compatibleIntentEventFactory: createCompatibleSendIntentEvent,
+        const operation = draftSender.send(elements.input, async text => {
+            const sendMessage = await loadSendTextareaMessage();
+            if (pipElements !== elements) throw new Error('The chat window was closed.');
+            const textarea = document.querySelector('#send_textarea');
+            const sendButton = compatibleSendMode ? document.querySelector('#send_but') : null;
+            await sendDraftToSillyTavern({
+                text,
+                textarea,
+                inputEventFactory: () => new Event('input', { bubbles: true }),
+                sendTextareaMessage: sendMessage,
+                compatibleIntentTarget: sendButton,
+                compatibleIntentEventFactory: createCompatibleSendIntentEvent,
+            });
         });
-        pipElements.input.value = '';
+        updateControls();
+        await operation;
+        if (pipElements !== elements) return;
         resizePipInput();
         setStatus('Sent', 'idle');
         updateControls();
     } catch (error) {
-        notifyError(error?.message ?? 'Send failed', error);
+        if (pipElements === elements) notifyError(error?.message ?? 'Send failed', error);
+    } finally {
+        updateControls();
     }
 }
 
@@ -218,14 +215,17 @@ function stopGeneration() {
 }
 
 async function regenerateLastMessage() {
+    syncGenerationState();
+    if (isGenerating || draftSender.pending) return;
+    const elements = pipElements;
     try {
-        isGenerating = true;
+        const operation = draftSender.run(() => triggerRegenerate(getContext()));
         updateControls();
-        await triggerRegenerate(getContext());
+        await operation;
     } catch (error) {
-        isGenerating = false;
+        if (pipElements === elements) notifyError(error?.message ?? 'Regenerate failed', error);
+    } finally {
         updateControls();
-        notifyError(error?.message ?? 'Regenerate failed', error);
     }
 }
 
@@ -296,7 +296,7 @@ function getPipStyles() {
         }
         .pip-mini-chat__output {
             height: 100%;
-            min-height: 120px;
+            min-height: 0;
             overflow-x: hidden;
             overflow-y: auto;
             scrollbar-width: none;
@@ -557,7 +557,12 @@ function buildPipDocument(targetWindow) {
 
     resizePipInput();
     setupPipScrollbar();
-    installPipInteractionFallbacks();
+    messageView = createMessageView(pipElements.output, {
+        host: window,
+        theme: buildThemeVariableCss(collectThemeVariables(getComputedStyle(document.documentElement))),
+        onResize: updatePipScrollbar,
+    });
+    targetWindow.addEventListener('resize', resizePipInput);
     pipElements.input.addEventListener('input', () => {
         resizePipInput();
         updateControls();
@@ -578,13 +583,14 @@ function resizePipInput() {
         return;
     }
 
-    const rawLineCount = String(pipElements.input.value ?? '').split('\n').length;
-    const rowCount = getTextareaRowCount(pipElements.input.value);
-    const height = 16 + (rowCount * 20);
-
-    pipElements.input.rows = rowCount;
+    const styles = pipWindow.getComputedStyle(pipElements.input);
+    const lineHeight = parseFloat(styles.lineHeight);
+    const chromeHeight = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom)
+        + parseFloat(styles.borderTopWidth) + parseFloat(styles.borderBottomWidth);
+    pipElements.input.style.height = '0px';
+    const { height, overflow } = measureInputHeight(pipElements.input.scrollHeight, lineHeight, chromeHeight);
     pipElements.input.style.height = `${height}px`;
-    pipElements.input.style.overflowY = rawLineCount > 3 ? 'auto' : 'hidden';
+    pipElements.input.style.overflowY = overflow;
 }
 
 function setupPipScrollbar() {
@@ -702,157 +708,9 @@ function updatePipScrollbar() {
     thumb.style.transform = `translateY(${top}px)`;
 }
 
-function createPipJQueryBridge(hostJQuery) {
-    const pipDocument = pipWindow?.document;
-    if (typeof hostJQuery !== 'function' || !pipDocument) {
-        return hostJQuery;
-    }
-
-    const bridge = function pipJQueryBridge(selector, context) {
-        if (typeof selector === 'function') {
-            if (pipDocument.readyState === 'loading') {
-                pipDocument.addEventListener('DOMContentLoaded', () => selector(bridge), { once: true });
-            } else {
-                selector(bridge);
-            }
-            return hostJQuery(pipDocument);
-        }
-
-        if (typeof selector === 'string' && context === undefined) {
-            return hostJQuery(selector, pipDocument);
-        }
-
-        return hostJQuery(selector, context);
-    };
-
-    Object.setPrototypeOf(bridge, Object.getPrototypeOf(hostJQuery));
-    Object.assign(bridge, hostJQuery);
-    bridge.fn = hostJQuery.fn;
-
-    return bridge;
-}
-
-function bridgeHostGlobalsToPipWindow() {
-    if (!pipWindow || pipWindow.closed) {
-        return;
-    }
-
-    const hostJQuery = globalThis.jQuery ?? globalThis.$;
-    if (typeof hostJQuery === 'function') {
-        const pipJQuery = createPipJQueryBridge(hostJQuery);
-        pipWindow.$ = pipJQuery;
-        pipWindow.jQuery = pipJQuery;
-    }
-
-    pipWindow.setPipMiniChatInput = text => writePipInput(text, { append: false });
-    pipWindow.appendPipMiniChatInput = text => writePipInput(text, { append: true });
-    pipWindow.triggerSlash = command => {
-        const inputMatch = String(command ?? '').match(/^\/setinput\s+([\s\S]*)$/i);
-        if (inputMatch) {
-            writePipInput(inputMatch[1], { append: false });
-            return true;
-        }
-
-        return globalThis.triggerSlash?.(command);
-    };
-
-    const names = [
-        '_',
-        'toastr',
-        'SillyTavern',
-        'TavernHelper',
-        'Mvu',
-        'getAllVariables',
-        'waitGlobalInitialized',
-        'eventOn',
-        'eventMakeLast',
-        'eventSource',
-        'eventTypes',
-        'errorCatched',
-    ];
-
-    for (const name of names) {
-        if (globalThis[name] !== undefined) {
-            try {
-                pipWindow[name] = globalThis[name];
-            } catch {
-                // Best-effort compatibility bridge for user-provided status HTML.
-            }
-        }
-    }
-}
-
-function executeOutputScripts(container) {
-    const scripts = container?.querySelectorAll?.('script') ?? [];
-
-    withPipDocumentCompatibility(() => {
-        for (const script of scripts) {
-            const replacement = pipWindow.document.createElement('script');
-            for (const attribute of script.attributes) {
-                replacement.setAttribute(attribute.name, attribute.value);
-            }
-            replacement.textContent = script.textContent;
-            script.replaceWith(replacement);
-        }
-    });
-}
-
-function withPipDocumentCompatibility(callback) {
-    if (!pipWindow?.document || typeof callback !== 'function') {
-        return;
-    }
-
-    const doc = pipWindow.document;
-    const originalAddEventListener = doc.addEventListener.bind(doc);
-    const originalWindowAddEventListener = pipWindow.addEventListener.bind(pipWindow);
-
-    const makeDomReadyCompat = original => function addEventListenerCompat(type, listener, options) {
-        if (type === 'DOMContentLoaded' && doc.readyState !== 'loading' && typeof listener === 'function') {
-            pipWindow.setTimeout(() => {
-                listener.call(doc, new Event('DOMContentLoaded'));
-            }, 0);
-        }
-
-        return original(type, listener, options);
-    };
-
-    doc.addEventListener = makeDomReadyCompat(originalAddEventListener);
-    pipWindow.addEventListener = makeDomReadyCompat(originalWindowAddEventListener);
-
-    try {
-        callback();
-    } finally {
-        doc.addEventListener = originalAddEventListener;
-        pipWindow.addEventListener = originalWindowAddEventListener;
-    }
-}
-
-function installPipInteractionFallbacks() {
-    if (!pipElements?.output) {
-        return;
-    }
-
-    pipElements.output.addEventListener('click', event => {
-        const target = event.target?.closest?.('[data-pip-input], .option-item');
-        if (!target) {
-            return;
-        }
-
-        const valueBeforeClick = pipElements.input.value;
-        pipWindow.setTimeout(() => {
-            if (pipElements.input.value !== valueBeforeClick) {
-                return;
-            }
-
-            const text = target.dataset.pipInput || target.querySelector?.('.option-text')?.textContent || target.textContent;
-            if (text?.trim()) {
-                writePipInput(text.trim(), { append: true });
-            }
-        }, 0);
-    });
-}
-
 function cleanupPip() {
+    messageView?.dispose();
+    messageView = null;
     cleanupPipEventListeners?.();
     cleanupPipEventListeners = null;
     pipWindow = null;
@@ -862,6 +720,7 @@ function cleanupPip() {
 }
 
 async function openPipWindow() {
+    if (openingPip) return;
     if (!window.documentPictureInPicture?.requestWindow) {
         notifyError('Document Picture-in-Picture is unavailable. Please use Chrome or Edge.');
         return;
@@ -873,6 +732,7 @@ async function openPipWindow() {
     }
 
     try {
+        openingPip = true;
         pipWindow = await window.documentPictureInPicture.requestWindow({
             width: PIP_WIDTH,
             height: PIP_HEIGHT,
@@ -884,12 +744,18 @@ async function openPipWindow() {
             refreshPip();
         });
         registerPipEventListeners();
-        pipWindow.addEventListener('pagehide', cleanupPip, { once: true });
+        const openedWindow = pipWindow;
+        pipWindow.addEventListener('pagehide', () => {
+            if (pipWindow === openedWindow) cleanupPip();
+        }, { once: true });
         refreshPip();
         pipElements.input.focus();
     } catch (error) {
+        pipWindow?.close();
         cleanupPip();
         notifyError(error?.message ?? 'Could not open PiP window', error);
+    } finally {
+        openingPip = false;
     }
 }
 

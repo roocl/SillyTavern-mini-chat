@@ -44,3 +44,5 @@ https://github.com/roocl/SillyTavern-mini-chat.git
 
 - 浏览器自带的 PiP 标题栏和窗口边框无法被插件主题化。
 - 小窗不会复制完整 SillyTavern 页面，只保留最新回复、输入和基础操作。
+
+开发与验证入口见 [开发索引](docs/README.md)。
